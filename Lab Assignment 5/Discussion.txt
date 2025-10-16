@@ -1,0 +1,22 @@
+1. What happens if the vector size N is not divisible by the number of processes?
+
+If the total number of elements (N) can't be evenly divided by the number of processes, MPI_Scatter will only distribute the elements that fit perfectly.
+Any leftover data (N % size) is ignored, leading to an incorrect final result because part of the data was never processed.
+
+2. How can you modify the program to handle uneven partitions?
+
+The solution is to use MPI_Scatterv. Unlike MPI_Scatter, this function allows you to send a different number of elements to each process.
+You manually calculate how many elements each process should handle (giving the leftover elements to the first few processes) and tell MPI_Scatterv the specific size and starting point for each chunk.
+This ensures all data is distributed and processed correctly.
+
+3. How would performance differ between using MPI_Reduce vs. MPI_Gather + local summation?
+
+MPI_Reduce is far superior. It performs the summation in parallel using an efficient, tree-based pattern that minimizes network traffic and scales well.
+Using MPI_Gather is inefficient because it sends all partial results to a single root process, creating a communication bottleneck. The root then has to sum everything up by itself, which is a slow, sequential process.
+
+4. How could this same approach be extended to matrix summation or averaging?
+
+The approach is nearly identical. You still scatter the data, perform a local computation, and then reduce the results. The main difference is how you handle the 2D data.
+You would treat the matrix as a single, large 1D array and scatter entire rows or blocks of rows to each process. Each process then calculates the sum of the elements in its assigned rows.
+Finally, MPI_Reduce is used to add up these partial sums from every process to get the final total sum of the matrix.
+To get the average, the root process simply divides this final sum by the total number of elements (rows x columns).

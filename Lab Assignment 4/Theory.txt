@@ -1,0 +1,179 @@
+Part 1:
+
+Output:
+
+--- Training on CPU for 3 epochs ---
+Epoch 1/3 - Training time: 72.11s
+Epoch 2/3 - Training time: 71.58s
+Epoch 3/3 - Training time: 71.65s
+Total Training Time on CPU: 215.34s
+
+CUDA (GPU) is available. Using GPU.
+
+To monitor GPU utilization, open a new terminal and run:
+watch -n 0.5 nvidia-
+
+Discussion
+
+The speedup from GPU training is due to its massively parallel architecture. A CPU executes tasks sequentially on a few powerful cores, while a GPU uses thousands of simpler cores to perform the same operation on many data points simultaneously.
+Neural network training is dominated by matrix multiplications and convolutions, which are inherently parallel operations that GPUs can execute far more efficiently than CPUs.
+However, the performance gain is not limitless. The speedup is primarily affected by:
+Data Transfer Overhead: Data must be moved from CPU RAM to the GPU's VRAM over the PCIe bus. For small models or datasets, this transfer time can be a significant bottleneck, negating the computational speedup.
+Computational Workload: The model must be complex enough to provide sufficient parallel work to saturate the GPU's thousands of cores. Small models may not generate enough work, leading to underutilization and a less dramatic speedup.
+
+
+Part 2:
+
+Output:
+
+Using device: cuda
+Starting training with different batch sizes...
+--- Training with Batch Size: 16 ---
+Total Time: 34.15s
+Peak GPU Memory: 215.45 MB
+--- Training with Batch Size: 64 ---
+Total Time: 13.88s
+Peak GPU Memory: 231.19 MB
+--- Training with Batch Size: 256 ---
+Total Time: 8.51s
+Peak GPU Memory: 295.94 MB
+--- Training with Batch Size: 1024 ---
+Total Time: 6.97s
+Peak GPU Memory: 555.44 MB
+Plot saved as 'part2_batch_size_effects.png'
+
+Discussion:
+
+Why does increasing batch size improve GPU efficiency up to a point?
+
+Increasing the batch size allows the GPU to process more data in parallel during a single forward and backward pass.
+This better saturates the thousands of available cores, maximizing computational throughput. With small batches, the GPU spends a larger fraction of its time on overhead like launching kernels and less time on actual computation.
+Larger batches ensure the hardware is more consistently utilized, which generally leads to a shorter overall training time.
+
+Why does accuracy sometimes drop for very large batches?
+
+While computationally efficient, very large batches can negatively impact a model's ability to generalize. The optimization process takes fewer, larger steps down the loss gradient.
+This can cause the optimizer to converge to sharp, narrow minima in the loss landscape. Models that converge in these sharp minima are often less robust and perform worse on unseen data.
+Smaller batches introduce more noise into the gradient updates, which can help the optimizer find flatter, more generalizable minima.
+
+
+Part 3:
+
+Output:
+
+Using device: cuda
+Starting training with different model complexities...
+Monitor GPU utilization with 'watch -n 0.5 nvidia-smi'
+--- Training Model: Small ---
+Total Time: 5.89s
+Peak GPU Memory: 260.12 MB
+Number of Parameters: 0.03M
+--- Training Model: Medium ---
+Total Time: 7.91s
+Peak GPU Memory: 310.44 MB
+Number of Parameters: 0.41M
+--- Training Model: Large ---
+Total Time: 28.52s
+Peak GPU Memory: 815.81 MB
+Number of Parameters: 6.69M
+--- Performance Comparison ---
+ Model Complexity  Training Time (s)  Peak GPU Memory (MB)  Parameters (M)
+            Small               5.89                260.12            0.03
+           Medium               7.91                310.44            0.41
+            Large              28.52                815.81            6.6
+		
+Discussion:
+
+How model size affects GPU workload and training time.
+
+As a model's complexity increases, it has more layers and parameters. This translates directly into a higher number of floating-point operations (FLOPs) required
+for each forward and backward pass. This increased computational workload keeps the GPU cores busy for longer, leading to higher sustained GPU utilization and a longer training time per epoch.
+
+How GPU compute and memory balance affect performance.
+
+Optimal performance is achieved by balancing the computational demands of the model with the GPU's available VRAM.
+A larger, more complex model requires more memory to store its weights, gradients, and activations. If a model and batch size are too large, they can exceed the GPU's memory capacity, causing a crash.
+The goal is to choose a model and batch size that are large enough to maximize the GPU's computational throughput without exhausting its memory resources.
+
+
+Part 4:
+
+Output:
+
+Using device: cuda
+Starting training with different numbers of data loader workers...
+Monitor GPU utilization with 'watch -n 0.5 nvidia-smi'
+--- Training with num_workers = 0 ---
+Total Time: 11.85s
+--- Training with num_workers = 2 ---
+Total Time: 8.41s
+--- Training with num_workers = 4 ---
+Total Time: 7.95s
+--- Training with num_workers = 8 ---
+Total Time: 7.99s
+--- Performance Comparison ---
+ num_workers   time
+           0  11.85
+           2   8.41
+           4   7.95
+           8   7.99
+Plot saved as 'part4_num_workers_effect.png'
+
+Discussion:
+
+Why inefficient data pipelines cause low GPU utilization.
+
+An inefficient data pipeline starves the GPU. When num_workers=0, the main process is responsible for both loading data from disk and feeding it to the GPU.
+Because the GPU can process a batch of data much faster than the CPU can load the next one,
+the GPU finishes its work and then sits idle, waiting for the CPU. This "stop-and-go" workflow results in low average GPU utilization, as the hardware is frequently waiting for data.
+
+How overlapping CPU data loading and GPU training improves performance.
+
+Setting num_workers > 0 creates separate background processes on the CPU dedicated to loading data. This allows the CPU and GPU to work in parallel.
+While the GPU is busy training on batch N, the CPU worker processes are already loading and preparing batch N+1 in the background.This creates a continuous, pre-fetched queue of data ready for the GPU,
+effectively hiding the data loading latency. This overlap ensures the GPU rarely has to wait, maximizing its utilization and significantly reducing overall training time.
+
+
+Discussion Questions:
+
+1. What factors most affect GPU training performance (batch size, model size, precision,
+data pipeline)?
+
+The most critical factors, often interacting with each other, are:
+Data Pipeline Efficiency: This is frequently the biggest bottleneck. If the CPU can't load and preprocess data fast enough, the GPU will be left idle, waiting for its next task. An optimized pipeline is essential to keep the GPU saturated.
+Batch Size: This directly controls the amount of parallel work sent to the GPU. A larger batch size generally improves hardware utilization and throughput, but only up to a point.
+Model Complexity (Size): A larger model provides more computational work (matrix multiplications), which can better utilize the GPU's thousands of cores. However, it also increases memory requirements.
+Precision (e.g., FP32 vs. FP16): Lower precision arithmetic (like FP16 in mixed precision) can dramatically increase throughput and reduce memory usage on modern GPUs with specialized hardware (Tensor Cores).
+
+2. Why might small models not benefit much from GPU acceleration?
+
+Small models often don't benefit from GPU acceleration because the computational work is outweighed by the data transfer overhead.
+
+Before a GPU can do any work, the model and data must be copied from the CPU's RAM to the GPU's VRAM over the PCIe bus. For a small model, this transfer time can be longer than the time the GPU actually spends on computation.
+The result is that the GPU finishes its task quickly and then sits idle, waiting for the next small chunk of data. In this scenario, the latency of moving data back and forth negates the GPU's speed advantage.
+
+3. How can you minimize GPU idle time during training?
+
+Minimizing GPU idle time is all about ensuring the data pipeline can "feed" the GPU without interruption. The key methods are:
+Use Multi-process Data Loading: In PyTorch, set num_workers > 0 in the DataLoader. This creates background CPU processes that load and preprocess data in parallel while the GPU is busy with the current batch.
+Enable Pinned Memory: Setting pin_memory=True in the DataLoader allocates the CPU data in a special memory region that allows for much faster, asynchronous transfers to the GPU.
+Optimize Preprocessing: Ensure any data augmentation or transformation steps are highly efficient. If they are computationally heavy, they can become the new bottleneck on the CPU side.
+Increase Batch Size: A larger batch size keeps the GPU busy for a longer, continuous period on a single task, reducing the relative impact of any small gaps between batches.
+
+4. What are the trade-offs between higher batch size and model accuracy?
+
+The trade-off is between training speed/stability and the model's ability to generalize.
+Higher Batch Size:
+	Pros: Faster training due to better hardware utilization; more stable and direct convergence because the gradient estimate is more accurate.
+	Cons: Requires more GPU memory; can lead to poorer generalization. The optimizer may converge to sharp, narrow minima in the loss landscape, which often don't perform as well on new, unseen data.
+Lower Batch Size:
+	Pros: The "noisy" gradient updates can act as a form of regularization, helping the optimizer escape poor local minima and settle in flatter, more generalizable regions of the loss landscape, sometimes leading to better final accuracy.
+	Cons: Slower training due to underutilization of the GPU; the training process can be more erratic.
+
+5. Why does data transfer between CPU and GPU sometimes become a bottleneck?
+
+The data transfer becomes a bottleneck because the bandwidth of the PCIe bus is significantly lower than the internal memory bandwidth of the GPU.
+
+Think of the GPU as a high-speed factory and the PCIe bus as the single road leading to it. No matter how fast the factory can work, it's limited by how quickly raw materials can be delivered on that road.
+If your training loop requires frequent transfers of large amounts of data (like high-resolution images or videos), the GPU can finish its computation much faster than the next batch of data can arrive over the PCIe bus.
+When this happens, the GPU is forced to wait, and the transfer speed becomes the limiting factor for your entire training process.

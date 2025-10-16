@@ -1,0 +1,59 @@
+Conceptual Question:
+
+1. Why does choosing a block size that is not a multiple of 32 (warp size) lead to underutilization of GPU hardware resources?
+
+On NVIDIA GPUs, threads are executed in groups of 32 called warps. This is a fundamental hardware constraint. An SM (Streaming Multiprocessor) schedules and executes instructions for an entire warp at once.
+If you choose a block size that isn't a multiple of 32 (e.g., 40), the GPU still has to launch full warps.
+- The first 32 threads would form a complete, efficient warp.
+- The remaining 8 threads (40 - 32) would form a second warp.
+The problem is that this second warp is underpopulated. The SM must still use the same resources and execution time as it would for a full 32-thread warp, but 24 of its execution lanes are idle.
+This is like sending out a 32-passenger bus with only 8 people on it—the fuel and time are spent, but most of the capacity is wasted. This leads to significant underutilization of the GPU's computational resources.
+
+2. Explain how occupancy of an SM (Streaming Multiprocessor) depends on block size and threads per block.
+
+Occupancy is the ratio of active warps on an SM to the maximum number of warps that SM can support. High occupancy is crucial for performance because it allows the SM's scheduler to hide latency.
+When one warp is stalled (e.g., waiting for data from memory), the scheduler can instantly switch to another ready warp to keep the processing units busy.
+Occupancy is determined by a trade-off between threads per block and resources per block:
+- Small Blocks (Few Threads): Using small blocks might not create enough total warps to fully occupy the SM. If an SM can handle 48 warps but your blocks only create 16, you can't achieve full occupancy.
+- Large Blocks (Many Threads): A block with many threads requires more resources like registers and shared memory. An SM has a fixed pool of these resources. If a single block uses too many registers,
+	it can prevent other blocks from running on the same SM, even if there are available warp slots. This limits the total number of active warps, reducing occupancy.
+The goal is to find a "sweet spot": a block size that is large enough to create many active warps but not so large that it exhausts the SM's resources and limits the number of concurrent blocks.
+
+
+Practical / Coding Question:
+
+Code Output:
+
+Image loaded successfully: 1920x1080 pixels.
+Block Size: (8, 8)     Execution Time: 0.8541 ms
+Block Size: (16, 16)    Execution Time: 0.3150 ms
+Block Size: (32, 32)    Execution Time: 0.2215 ms
+Inverted image saved as 'output_gpu.jpg'
+
+Which configuration runs fastest and why?
+
+The (32, 32) configuration is the fastest.
+Warp Efficiency: A block of 32x32 contains 1024 threads. Since 1024 is a multiple of 32 (1024 = 32 * 32), this configuration creates 32 perfectly full warps. There is no wasted computational power from underpopulated warps.
+High Occupancy: 1024 threads per block is a large number, which helps create enough active warps on each SM to effectively hide memory latency. For a simple kernel like this, it doesn't strain register or shared memory limits.
+Hardware Alignment: Modern GPU architectures are highly optimized for block sizes that are powers of 2 and multiples of the warp size. The (32, 32) configuration hits this sweet spot perfectly.
+
+
+Analysis Question:
+
+If Case B is fastest, explain why neither the smallest nor the largest block size gave optimal performance.
+
+Probably because it represents the optimal balance between parallelism and resource usage for that specific image filter.
+
+
+Discussion Question
+
+Why does increasing the number of threads per block not always improve performance? Consider register pressure, shared memory limits, and scheduling.
+
+Increasing the number of threads per block is beneficial only up to a point, after which performance degrades due to resource limitations.
+Register Pressure: This is often the biggest bottleneck. Each SM has a fixed, finite number of registers. As you increase the threads in a block, the total number of registers required by that block also increases.
+If the demand exceeds the supply, the GPU is forced to use slow off-chip memory (local memory) to store variables, a process called register spilling. This is devastating for performance.
+Shared Memory Limits: Like registers, shared memory is a finite resource on each SM. If your kernel relies heavily on shared memory, a very large block can consume it all.
+This prevents other blocks from being scheduled on the same SM, which reduces the total number of active warps and hurts the SM's ability to hide latency.
+Scheduling and Occupancy: The primary goal of having many threads is to provide the scheduler with enough active warps to hide latency.
+Once you have "enough" warps to cover the typical memory access latency, adding more threads provides diminishing returns.
+At this point, the performance becomes limited by other factors, like memory bandwidth or the execution time of the instructions themselves, and the overhead from managing more threads can start to hurt.
